@@ -10,6 +10,7 @@
     <a href="#">Pengrui Li</a><sup>1</sup>,
     <a href="#">Lehan He</a><sup>1,4</sup>,
     <a href="#">Yijin Zhou</a><sup>2,3,4</sup>,
+    <br>
     <a href="https://amandajshao.github.io">Jing Shao</a><sup>2</sup>,
     <a href="#">Bohan Zhuang</a><sup>5†</sup>,
     <a href="#">Lu Sheng</a><sup>1†</sup>
@@ -19,6 +20,7 @@
     <sup>1</sup>School of Software, Beihang University,
     <sup>2</sup>Shanghai AI Laboratory,
     <sup>3</sup>Shanghai Jiao Tong University,
+    <br>
     <sup>4</sup>Shanghai Innovation Institute,
     <sup>5</sup>ZIP Lab, Zhejiang University
 </p>
