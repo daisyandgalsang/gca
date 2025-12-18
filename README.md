@@ -29,8 +29,8 @@
 </p>
 
 <p align="center">
-    <a href="https://arxiv.org/pdf/2511.22659">📑 Paper</a>  |
     <a href="https://arxiv.org/abs/2511.22659">📖 arXiv</a>  |
+    <a href="https://huggingface.co/papers/2511.22659">🤗 HF Paper</a>  |
     <a href="https://gca-spatial-reasoning.github.io">🌐 Homepage</a>
 </p>
 
