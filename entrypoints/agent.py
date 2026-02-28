@@ -2,10 +2,12 @@ import argparse
 import asyncio
 import json
 import os
+import random
+import re
 import shutil
 import traceback
 import torch
-from typing import Dict
+from typing import Dict, List
 from tqdm.asyncio import tqdm
 
 from evals import (
@@ -17,6 +19,36 @@ from evals import (
 from workflow.config import AgentConfig
 from workflow.state import AgentState
 from workflow.workflow import AgentWorkflow
+
+
+def _normalize_final_summary(numeric_result, summary) -> str:
+    if summary is not None:
+        summary_text = str(summary).strip()
+        if summary_text:
+            return summary_text
+
+    if numeric_result is None:
+        return ''
+
+    # Prefer execution_result when final answer wraps PythonToolOutput-like objects.
+    execution_result = getattr(numeric_result, 'execution_result', None)
+    candidate = execution_result if execution_result is not None else numeric_result
+
+    if isinstance(candidate, str):
+        text = candidate.strip()
+        if len(text) == 1 and text.upper() in {'A', 'B', 'C', 'D'}:
+            return f'\\boxed{{{text.upper()}}}'
+        return text
+
+    if hasattr(candidate, 'to_message_content'):
+        text = candidate.to_message_content()
+        # Make single-letter execution results easier for benchmark extractors.
+        match = re.search(r'Execution result:\s*([A-D])\b', text, re.IGNORECASE)
+        if match:
+            return f'\\boxed{{{match.group(1).upper()}}}'
+        return text
+
+    return str(candidate)
 
 
 parser = argparse.ArgumentParser()
@@ -32,6 +64,81 @@ parser.add_argument('--question_type', nargs='+', default=None)
 parser.add_argument('--concurrency', type=int, default=1)
 parser.add_argument('--work_dir', type=str, default=None)
 parser.add_argument('--resume', action='store_true')
+parser.add_argument('--max_samples', type=int, default=None)
+parser.add_argument(
+    '--sample_mode',
+    type=str,
+    default='head',
+    choices=['head', 'random', 'stratified'],
+    help='Sampling mode when --max_samples is set.',
+)
+parser.add_argument(
+    '--sample_seed',
+    type=int,
+    default=42,
+    help='Random seed used by random/stratified sampling.',
+)
+
+
+def _sample_eval_samples(
+    eval_samples: List[BaseBenchmarkSample],
+    max_samples: int,
+    sample_mode: str,
+    sample_seed: int,
+) -> List[BaseBenchmarkSample]:
+    if max_samples >= len(eval_samples):
+        return eval_samples
+
+    rng = random.Random(sample_seed)
+    if sample_mode == 'head':
+        return eval_samples[:max_samples]
+
+    if sample_mode == 'random':
+        sampled = eval_samples[:]
+        rng.shuffle(sampled)
+        return sampled[:max_samples]
+
+    # sample_mode == 'stratified'
+    groups: Dict[str, List[BaseBenchmarkSample]] = {}
+    for sample in eval_samples:
+        key = getattr(sample, 'question_type', 'UNKNOWN')
+        groups.setdefault(key, []).append(sample)
+
+    total = len(eval_samples)
+    # First allocate floor of each stratum proportion.
+    allocations: Dict[str, int] = {}
+    remainders = []
+    allocated = 0
+    for key, items in groups.items():
+        exact = max_samples * len(items) / total
+        base = int(exact)
+        allocations[key] = min(base, len(items))
+        allocated += allocations[key]
+        remainders.append((exact - base, key))
+
+    # Distribute remaining slots by largest fractional remainder.
+    remaining = max_samples - allocated
+    remainders.sort(reverse=True)
+    idx = 0
+    while remaining > 0 and remainders:
+        _, key = remainders[idx % len(remainders)]
+        if allocations[key] < len(groups[key]):
+            allocations[key] += 1
+            remaining -= 1
+        idx += 1
+        # Safety break in pathological cases (all groups full).
+        if idx > len(remainders) * (max_samples + 1):
+            break
+
+    sampled: List[BaseBenchmarkSample] = []
+    for key in sorted(groups.keys()):
+        items = groups[key][:]
+        rng.shuffle(items)
+        sampled.extend(items[:allocations.get(key, 0)])
+
+    # Shuffle final merged sample so strata are mixed during execution.
+    rng.shuffle(sampled)
+    return sampled[:max_samples]
 
 
 async def worker(
@@ -62,7 +169,8 @@ async def worker(
                 answer=sample.answer,
                 session_id=str(sample_id)
             )
-            _, summary = workflow.get_final_answer(final_state)
+            numeric_result, summary = workflow.get_final_answer(final_state)
+            summary = _normalize_final_summary(numeric_result, summary)
         except Exception as e:
             print(f'[Error] {str(e)}')
             print(traceback.format_exc())
@@ -135,12 +243,27 @@ async def main():
     workflow = AgentWorkflow()
 
     # 3. Dispatch Benchmark Samples
-    concurrency = min(args.concurrency, len(benchmark))
+    eval_samples = [sample for sample in benchmark]
+    if args.max_samples is not None:
+        if args.max_samples <= 0:
+            raise ValueError('--max_samples must be a positive integer.')
+        eval_samples = _sample_eval_samples(
+            eval_samples=eval_samples,
+            max_samples=args.max_samples,
+            sample_mode=args.sample_mode,
+            sample_seed=args.sample_seed,
+        )
+        print(
+            f'Limiting evaluation to {len(eval_samples)} samples '
+            f'(mode={args.sample_mode}, seed={args.sample_seed}).'
+        )
+
+    concurrency = min(args.concurrency, len(eval_samples))
     print(f'Executing tasks with concurrency={concurrency}')
     semaphore = asyncio.Semaphore(concurrency)
     write_lock = asyncio.Lock()
     tasks = []
-    for sample in benchmark:
+    for sample in eval_samples:
         if sample.sample_id in done:
             continue        
         tasks.append(asyncio.create_task(
@@ -165,7 +288,10 @@ async def main():
 
     # 5. Evaluating Predictions
     print('Evaluating predictions...')
-    predictions = {sample.sample_id: predictions.get(sample.sample_id, '') for sample in benchmark}
+    predictions = {
+        sample.sample_id: predictions.get(sample.sample_id, '')
+        for sample in eval_samples
+    }
     benchmark.evaluate(predictions, output_dir=config.work_dir)
     print(f'Evaluation finished. Results saved to: {os.path.abspath(config.work_dir)}')
 

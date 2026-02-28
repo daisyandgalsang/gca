@@ -29,5 +29,11 @@
     "enable_logging": true,
     "enable_visual_feedback": true,
     "enable_serve_autoscaling": true,
+    "cot_reasoner_model": "glm-4.6v",
+    "cot_reasoner_base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "cot_reasoner_api_key": "07e9bb2cfe0a431081300ec5f3386efe.I15XFCzcagNFLxjy",
+    "code_generator_model": "glm-4.6v",
+    "code_generator_base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "code_generator_api_key": "07e9bb2cfe0a431081300ec5f3386efe.I15XFCzcagNFLxjy",
     "max_visuals_to_load": 8
 }

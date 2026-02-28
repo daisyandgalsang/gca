@@ -241,9 +241,12 @@ class MindCubeBench(BaseBenchmark):
         Returns:
             Dictionary with evaluation results
         """
-        # 
         if ignore_empty:
-            predictions = {sample_id: content for sample_id, content in predictions.items() if content.strip()}
+            predictions = {
+                sample_id: content
+                for sample_id, content in predictions.items()
+                if isinstance(content, str) and content.strip()
+            }
 
         results = {
             'total_samples': 0,
@@ -253,12 +256,20 @@ class MindCubeBench(BaseBenchmark):
             'question_type_accuracy': {},
         }
         
-        for _, row in self.data.iterrows():
+        prediction_id_set = {str(sample_id) for sample_id in predictions.keys()}
+        eval_data = self.data[self.data['id'].astype(str).isin(prediction_id_set)]
+
+        for _, row in eval_data.iterrows():
             sample_id = row['id']
             ground_truth = str(row['gt_answer']).strip().upper()
             qtype = self._get_scene_type(sample_id)
 
             prediction = predictions.get(sample_id, '')
+            if prediction is None:
+                prediction = ''
+            else:
+                prediction = str(prediction)
+
             if ignore_empty and prediction.strip() == '':
                 continue
             if qtype == 'translation':
@@ -284,8 +295,12 @@ class MindCubeBench(BaseBenchmark):
                 'is_correct': is_correct
             })
         
-        results['overall_accuracy'] = results['correct_samples'] / results['total_samples']
-        for qt, s in results['question_type_accuracy'].items():
+        results['overall_accuracy'] = (
+            results['correct_samples'] / results['total_samples']
+            if results['total_samples'] > 0 else 0.0
+        )
+        for qt in list(results['question_type_accuracy'].keys()):
+            s = results['question_type_accuracy'][qt]
             if s['total_samples'] == 0:
                 del results['question_type_accuracy'][qt]
             else:

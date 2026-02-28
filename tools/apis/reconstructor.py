@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import functools
 from dataclasses import dataclass
@@ -560,11 +561,42 @@ class GeometricReconstructor(AgentTool):
             box (torch.Tensor): Shape `(4,)`. The bounding box for the target object.
             selected_index (int): The index of the image where the box is located.
         """
+        if reconstruction is None or not hasattr(reconstruction, '_reconstruction_model'):
+            return self.error(
+                msg='Invalid reconstruction input. Expected GeometricReconstructionOutput.'
+            )
+
+        if isinstance(box, str):
+            parsed_box = None
+            try:
+                parsed_box = parse_json_str(box)
+            except Exception:
+                try:
+                    parsed_box = ast.literal_eval(box)
+                except Exception:
+                    parsed_box = None
+
+            if parsed_box is None:
+                return self.error(
+                    msg=(
+                        'Invalid `box` string format. Expected a JSON/list-like '
+                        f'`[x1, y1, x2, y2]`, got: {box[:120]}'
+                    )
+                )
+            box = torch.as_tensor(parsed_box)
+        elif not isinstance(box, torch.Tensor):
+            try:
+                box = torch.as_tensor(box)
+            except Exception as e:
+                return self.error(
+                    msg=f'Invalid `box` type {type(box)}. Failed to convert to tensor: {e}'
+                )
+
         if box.squeeze().ndim != 1 or box.squeeze().shape[0] != 4:
             err_msg = f'Bad shape of input box. Expected shape `(4,)`, get {box.shape}'
             return self.error(msg=err_msg)
 
-        box = box.squeeze()
+        box = box.squeeze().to(dtype=torch.float32)
         if reconstruction._reconstruction_model == 'vggt':
             vggt_reconstruction = reconstruction.to_vggt()
             output = await self.vggt.project_box_to_3d_points.remote(

@@ -58,7 +58,7 @@ class GroundingDINOModelOutput(AgentContext):
 class GroundingDINOModel(AgentTool):
     CPU_CONSUMED = 0.25
     VRAM_CONSUMED = 10.0
-    AUTOSCALING_MIN_REPLICAS = 2
+    AUTOSCALING_MIN_REPLICAS = 1
     AUTOSCALING_MAX_REPLICAS = 8
 
     MODEL_ID = 'IDEA-Research/grounding-dino-base'

@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 from typing import Dict
+import shortuuid
 
 import ray
 from ray import serve
@@ -43,6 +44,18 @@ parser.add_argument('--question_type', nargs='+', default=None)
 parser.add_argument('--concurrency', type=int, default=1)
 parser.add_argument('--work_dir', type=str, default=None)
 parser.add_argument('--resume', action='store_true')
+
+
+def setup_ray():
+    uid = shortuuid.ShortUUID().random(8)
+    ray_temp_root = os.path.expanduser(os.getenv('RAY_TEMP_DIR', '/tmp/ray_temp'))
+    logs_dir = os.path.join(ray_temp_root, f'ray_{uid}')
+    os.makedirs(logs_dir, exist_ok=True)
+
+    if not ray.is_initialized():
+        os.environ['RAY_ROTATION_MAX_BYTES'] = str(1000 * 1024 * 1024)  # 1G
+        os.environ['RAY_ROTATION_BACKUP_COUNT'] = '10'
+        ray.init(_temp_dir=logs_dir)
 
 
 async def worker(
@@ -119,6 +132,8 @@ async def main():
     os.environ['AGENT_CONFIG_FILE'] = config_path
     with open(config_path, 'w') as f:
         json.dump(config.to_json(), f, indent=4)
+
+    setup_ray()
 
     # 1. Initialize Ray Serve and CoTReasoner
     image_loader = ImageLoader.bind()

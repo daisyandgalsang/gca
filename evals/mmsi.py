@@ -61,7 +61,7 @@ class MMSIBench(BaseBenchmark):
 
     def dump_images(self, data: pd.DataFrame):
         image_dir = os.path.join(self.data_path, 'images')
-        os.makedirs(image_dir, exists_ok=True)
+        os.makedirs(image_dir, exist_ok=True)
 
         for _, row in data.iterrows():
             id_val = row['id']
@@ -81,7 +81,7 @@ class MMSIBench(BaseBenchmark):
         data = pd.read_parquet(parquet_path)
 
         image_dir = os.path.join(self.data_path, 'images')
-        if not os.path.exists(image_dir):
+        if not os.path.exists(image_dir) or not os.listdir(image_dir):
             self.dump_images(data)
 
         data = data[data['question_type'].isin(self.question_type)]
@@ -223,7 +223,10 @@ class MMSIBench(BaseBenchmark):
                 'question_type_accuracy': {},
             }
 
-        for _, row in self.data.iterrows():
+        prediction_id_set = {str(sample_id) for sample_id in predictions.keys()}
+        eval_data = self.data[self.data['id'].astype(str).isin(prediction_id_set)]
+
+        for _, row in eval_data.iterrows():
             sample_id = row['id']
             ground_truth = str(row['answer']).strip().upper()
             qtype = row['question_type']

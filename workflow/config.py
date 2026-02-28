@@ -165,6 +165,12 @@ class AgentConfig:
     Tools like VGGT or SAM2 will scale up/down replicas based on request load.
     """
 
+    langgraph_recursion_limit: int = 80
+    """
+    Maximum number of LangGraph node transitions per sample.
+    Increase this value when complex samples need more planning/execution rounds.
+    """
+
     def _load_from_envs(self):
         for f in fields(self):
             env_var_name = f'AGENT_{f.name.upper()}'

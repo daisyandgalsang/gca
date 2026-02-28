@@ -129,6 +129,15 @@ class SolverExecutor:
 
             if call.tool_name == 'FinalAnswerGenerator.generate':
                 call.output_variable = 'final_answer'
+                # Guardrail: planner may output bare variable names (without "$").
+                # If answer_variable matches a workspace key, resolve it to the
+                # actual workspace object instead of passing the literal string.
+                answer_arg = call.args.get('answer_variable')
+                if isinstance(answer_arg, str):
+                    answer_var_name = answer_arg.strip()
+                    if answer_var_name and not answer_var_name.startswith('$'):
+                        if answer_var_name in workspace:
+                            resolved_args['answer_variable'] = workspace[answer_var_name]
                 resolved_args['messages'] = messages
                 if 'input_images' in workspace:
                     resolved_args['input_images'] = workspace['input_images']

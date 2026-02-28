@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph
+from langgraph.errors import GraphRecursionError
 from PIL import Image
 import ray
 from ray import serve
@@ -54,7 +55,8 @@ class AgentWorkflow:
     
     def setup_ray(self):
         uid = shortuuid.ShortUUID().random(8)
-        logs_dir = os.path.expanduser(f'~/.ray_temp/ray_{uid}')
+        ray_temp_root = os.path.expanduser(os.getenv('RAY_TEMP_DIR', '/tmp/ray_temp'))
+        logs_dir = os.path.join(ray_temp_root, f'ray_{uid}')
         if not os.path.exists(logs_dir):
             os.makedirs(logs_dir)
 
@@ -305,6 +307,7 @@ class AgentWorkflow:
         self.logger.get_session_dir(session_id)
 
         run_config = {'configurable': {'thread_id': session_id}}
+        run_config['recursion_limit'] = self.config.langgraph_recursion_limit
         initial_workspace = {'instruction': Instruction(text=instruction)}
 
         if images:
@@ -342,7 +345,21 @@ class AgentWorkflow:
             'messages': [initial_messages],
             'session_id': session_id,
         }
-        final_state = await self.graph.ainvoke(initial_state, config=run_config)
+        try:
+            final_state = await self.graph.ainvoke(initial_state, config=run_config)
+        except GraphRecursionError:
+            # Return a structured fallback so evaluation can continue per-sample.
+            fallback = FinalAnswer(
+                result=None,
+                natural_language_summary=(
+                    'Execution stopped because the planning/execution loop reached the '
+                    f'recursion limit ({self.config.langgraph_recursion_limit}).'
+                )
+            )
+            final_workspace = initial_workspace.copy()
+            final_workspace['final_answer'] = fallback
+            final_state = initial_state.copy()
+            final_state['workspace'] = final_workspace
 
         if self.config.generate_report_on_completion:
             self.logger.generate_session_report(
